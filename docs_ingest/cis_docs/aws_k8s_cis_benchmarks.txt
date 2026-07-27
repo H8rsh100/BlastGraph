@@ -1,0 +1,13 @@
+CIS Benchmark Security Guidelines
+
+[CIS AWS 2.1.1] S3 Bucket Public Access Control
+Ensure S3 Buckets do not allow public read or write access. Publicly exposed S3 buckets expose confidential data to unauthenticated internet entities. Enable Public Access Block and restrict Bucket ACLs to private.
+
+[CIS AWS 5.1] Unrestricted Security Group Ingress 0.0.0.0/0
+Ensure Security Groups restrict ingress access from 0.0.0.0/0 on sensitive administrative or data ports (e.g., SSH 22, RDP 3389, Database 5432/3306). Opening ports to 0.0.0.0/0 permits universal internet access.
+
+[CIS AWS 1.16] Overly Permissive IAM Policy Wildcards
+IAM Policies should follow the principle of least privilege. Do not specify wildcard '*' in Action or Resource fields, as it grants full access across AWS services or infrastructure resources.
+
+[CIS K8s 5.2.1] Minimize Admission of Root Containers
+Ensure Pod securityContext defines runAsNonRoot: true. Running containerized applications as the root user allows potential container break-out attacks to acquire host root permissions.
