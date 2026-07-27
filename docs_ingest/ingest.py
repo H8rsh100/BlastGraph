@@ -1,6 +1,6 @@
-"""Documentation ingestion and vector database storage using Chroma DB."""
+"""Documentation ingestion and vector database RAG retrieval module."""
 import os
-from typing import Optional
+from typing import Any, Optional
 import chromadb
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -19,7 +19,6 @@ def ingest_cis_docs(docs_dir: str = "docs_ingest/cis_docs", chroma_dir: str = ".
         return 0
 
     documents = []
-    metadata_list = []
 
     for root, _, files in os.walk(docs_dir):
         for file in files:
@@ -56,7 +55,6 @@ def ingest_cis_docs(docs_dir: str = "docs_ingest/cis_docs", chroma_dir: str = ".
     client = chromadb.PersistentClient(path=chroma_dir)
     collection = client.get_or_create_collection(name="cis_benchmarks")
     
-    # Upsert documents into collection
     collection.upsert(
         documents=chunks,
         ids=chunk_ids,
@@ -67,16 +65,7 @@ def ingest_cis_docs(docs_dir: str = "docs_ingest/cis_docs", chroma_dir: str = ".
 
 
 def retrieve_cis_guidance(query: str, chroma_dir: str = "./chroma_db", top_k: int = 3) -> list[str]:
-    """Retrieve top_k relevant CIS guidance snippets for a query from Chroma DB.
-
-    Args:
-        query: Query string describing a security issue or resource type.
-        chroma_dir: Directory path for Chroma DB storage.
-        top_k: Number of results to return.
-
-    Returns:
-        List of matching document snippets.
-    """
+    """Retrieve top_k relevant CIS guidance snippets for a query string from Chroma DB."""
     if not os.path.exists(chroma_dir):
         return []
 
@@ -87,8 +76,24 @@ def retrieve_cis_guidance(query: str, chroma_dir: str = "./chroma_db", top_k: in
         
         docs = results.get("documents", [[]])
         if docs and len(docs) > 0:
-            return docs[0]
+            return [doc for doc in docs[0] if doc]
     except Exception:
         pass
 
     return []
+
+
+def retrieve_cis_guidance_for_resource(resource_type: str, issue: str = "", chroma_dir: str = "./chroma_db", top_k: int = 3) -> list[str]:
+    """Retrieve CIS benchmark guidance specifically targeted for a given resource_type and issue.
+
+    Args:
+        resource_type: Resource type identifier (e.g., 'aws_s3_bucket', 'Pod').
+        issue: Specific issue string or title.
+        chroma_dir: Directory path for Chroma DB storage.
+        top_k: Max results to return.
+
+    Returns:
+        List of matching document snippets.
+    """
+    search_query = f"CIS guidance for {resource_type} {issue}".strip()
+    return retrieve_cis_guidance(search_query, chroma_dir=chroma_dir, top_k=top_k)
