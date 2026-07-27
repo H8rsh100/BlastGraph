@@ -1,7 +1,10 @@
-"""Kubernetes YAML manifest parser using PyYAML."""
+"""Kubernetes YAML manifest parser using PyYAML with logging."""
+import logging
 import os
 from typing import Any
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 def extract_k8s_references(doc: dict[str, Any]) -> list[str]:
@@ -10,9 +13,7 @@ def extract_k8s_references(doc: dict[str, Any]) -> list[str]:
     kind = doc.get("kind", "")
     spec = doc.get("spec", {}) or {}
 
-    # Extract Secret and ConfigMap references in Pod / Deployment specs
     def _scan_volumes_and_envs(container_spec: dict) -> None:
-        # Env vars from secret / configmap
         for env in container_spec.get("env", []) or []:
             if isinstance(env, dict):
                 val_from = env.get("valueFrom", {}) or {}
@@ -28,7 +29,6 @@ def extract_k8s_references(doc: dict[str, Any]) -> list[str]:
                 if "configMapRef" in env_from:
                     refs.add(f"ConfigMap.{env_from['configMapRef'].get('name')}")
 
-    # Check pod spec containers
     containers = []
     if kind in ("Pod",):
         containers = spec.get("containers", []) or []
@@ -43,7 +43,6 @@ def extract_k8s_references(doc: dict[str, Any]) -> list[str]:
         if isinstance(container, dict):
             _scan_volumes_and_envs(container)
 
-    # Check Service selectors
     if kind == "Service":
         selector = spec.get("selector", {}) or {}
         for k, v in selector.items():
@@ -53,18 +52,13 @@ def extract_k8s_references(doc: dict[str, Any]) -> list[str]:
 
 
 def parse_k8s_dir(dir_path: str) -> list[dict[str, Any]]:
-    """Parse Kubernetes YAML manifests in a directory and return normalized resource dicts.
-
-    Args:
-        dir_path: Path to directory containing .yaml / .yml files.
-
-    Returns:
-        List of resource dicts containing resource_type, name, attributes, references.
-    """
+    """Parse Kubernetes YAML manifests in a directory and return normalized resource dicts."""
     resources = []
     if not os.path.exists(dir_path):
+        logger.warning(f"Kubernetes directory does not exist: {dir_path}")
         return resources
 
+    logger.info(f"Scanning for Kubernetes YAML files in: {dir_path}")
     for root, _, files in os.walk(dir_path):
         for file in files:
             if file.endswith((".yaml", ".yml")):
@@ -87,7 +81,9 @@ def parse_k8s_dir(dir_path: str) -> list[dict[str, Any]]:
                                     "references": refs,
                                     "source_file": file_path
                                 })
-                except Exception:
+                except Exception as e:
+                    logger.error(f"Error parsing Kubernetes YAML {file_path}: {e}")
                     continue
 
+    logger.info(f"Successfully parsed {len(resources)} Kubernetes resources.")
     return resources

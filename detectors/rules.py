@@ -1,17 +1,13 @@
-"""Misconfiguration detector rules for Infrastructure-as-Code resources."""
+"""Misconfiguration detector rules for Infrastructure-as-Code resources with logging."""
 import json
+import logging
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 
 def check_public_s3(resource: dict[str, Any]) -> Optional[dict[str, Any]]:
-    """Check if S3 bucket or access block permits public access.
-
-    Args:
-        resource: Parsed resource dictionary.
-
-    Returns:
-        Violation dictionary if vulnerable, else None.
-    """
+    """Check if S3 bucket or access block permits public access."""
     res_type = resource.get("resource_type", "")
     attrs = resource.get("attributes", {}) or {}
 
@@ -20,6 +16,7 @@ def check_public_s3(resource: dict[str, Any]) -> Optional[dict[str, Any]]:
         if isinstance(acl, list) and acl:
             acl = acl[0]
         if acl in ("public-read", "public-read-write"):
+            logger.info(f"Rule RULE-S3-001 triggered on {resource.get('name')}")
             return {
                 "rule_id": "RULE-S3-001",
                 "title": "Public S3 Bucket ACL",
@@ -31,6 +28,7 @@ def check_public_s3(resource: dict[str, Any]) -> Optional[dict[str, Any]]:
         block_public_acls = attrs.get("block_public_acls", True)
         block_public_policy = attrs.get("block_public_policy", True)
         if block_public_acls is False or block_public_policy is False:
+            logger.info(f"Rule RULE-S3-002 triggered on {resource.get('name')}")
             return {
                 "rule_id": "RULE-S3-002",
                 "title": "Disabled S3 Public Access Block",
@@ -42,14 +40,7 @@ def check_public_s3(resource: dict[str, Any]) -> Optional[dict[str, Any]]:
 
 
 def check_open_security_group(resource: dict[str, Any]) -> Optional[dict[str, Any]]:
-    """Check if Security Group opens ingress to 0.0.0.0/0.
-
-    Args:
-        resource: Parsed resource dictionary.
-
-    Returns:
-        Violation dictionary if vulnerable, else None.
-    """
+    """Check if Security Group opens ingress to 0.0.0.0/0."""
     res_type = resource.get("resource_type", "")
     attrs = resource.get("attributes", {}) or {}
 
@@ -62,7 +53,6 @@ def check_open_security_group(resource: dict[str, Any]) -> Optional[dict[str, An
             if isinstance(rule, dict):
                 cidr_blocks = rule.get("cidr_blocks", [])
                 if isinstance(cidr_blocks, list):
-                    # Check list elements or nested lists
                     flat_cidrs = []
                     for item in cidr_blocks:
                         if isinstance(item, list):
@@ -70,6 +60,7 @@ def check_open_security_group(resource: dict[str, Any]) -> Optional[dict[str, An
                         else:
                             flat_cidrs.append(str(item))
                     if "0.0.0.0/0" in flat_cidrs or '["0.0.0.0/0"]' in flat_cidrs:
+                        logger.info(f"Rule RULE-SG-001 triggered on {resource.get('name')}")
                         return {
                             "rule_id": "RULE-SG-001",
                             "title": "Unrestricted Security Group Ingress 0.0.0.0/0",
@@ -77,9 +68,9 @@ def check_open_security_group(resource: dict[str, Any]) -> Optional[dict[str, An
                             "description": f"Security Group '{resource.get('name')}' grants ingress access to 0.0.0.0/0."
                         }
 
-        # Check standalone rule cidr_blocks
         cidr_blocks = attrs.get("cidr_blocks", [])
         if isinstance(cidr_blocks, list) and "0.0.0.0/0" in cidr_blocks:
+            logger.info(f"Rule RULE-SG-001 triggered on {resource.get('name')}")
             return {
                 "rule_id": "RULE-SG-001",
                 "title": "Unrestricted Security Group Ingress 0.0.0.0/0",
@@ -91,14 +82,7 @@ def check_open_security_group(resource: dict[str, Any]) -> Optional[dict[str, An
 
 
 def check_root_pod(resource: dict[str, Any]) -> Optional[dict[str, Any]]:
-    """Check if Kubernetes Pod container is permitted to run as root user.
-
-    Args:
-        resource: Parsed resource dictionary.
-
-    Returns:
-        Violation dictionary if vulnerable, else None.
-    """
+    """Check if Kubernetes Pod container is permitted to run as root user."""
     res_type = resource.get("resource_type", "")
     attrs = resource.get("attributes", {}) or {}
 
@@ -112,6 +96,7 @@ def check_root_pod(resource: dict[str, Any]) -> Optional[dict[str, Any]]:
         run_as_user = sec_context.get("runAsUser", None)
 
         if run_as_non_root is not True or run_as_user == 0:
+            logger.info(f"Rule RULE-K8S-001 triggered on {resource.get('name')}")
             return {
                 "rule_id": "RULE-K8S-001",
                 "title": "Kubernetes Pod Running as Root",
@@ -123,14 +108,7 @@ def check_root_pod(resource: dict[str, Any]) -> Optional[dict[str, Any]]:
 
 
 def check_wildcard_iam(resource: dict[str, Any]) -> Optional[dict[str, Any]]:
-    """Check if IAM Policy grants full wildcard '*' permissions.
-
-    Args:
-        resource: Parsed resource dictionary.
-
-    Returns:
-        Violation dictionary if vulnerable, else None.
-    """
+    """Check if IAM Policy grants full wildcard '*' permissions."""
     res_type = resource.get("resource_type", "")
     attrs = resource.get("attributes", {}) or {}
 
@@ -146,6 +124,7 @@ def check_wildcard_iam(resource: dict[str, Any]) -> Optional[dict[str, Any]]:
                     action = stmt.get("Action", "")
                     res = stmt.get("Resource", "")
                     if action == "*" or res == "*" or "*" in action:
+                        logger.info(f"Rule RULE-IAM-001 triggered on {resource.get('name')}")
                         return {
                             "rule_id": "RULE-IAM-001",
                             "title": "Overly Permissive Wildcard IAM Policy",
@@ -156,6 +135,7 @@ def check_wildcard_iam(resource: dict[str, Any]) -> Optional[dict[str, Any]]:
             pass
 
         if '"*"' in policy_str or "'*'" in policy_str or 'Action": "*"' in policy_str:
+            logger.info(f"Rule RULE-IAM-001 triggered on {resource.get('name')}")
             return {
                 "rule_id": "RULE-IAM-001",
                 "title": "Overly Permissive Wildcard IAM Policy",

@@ -1,8 +1,11 @@
-"""Terraform HCL manifest parser using python-hcl2."""
+"""Terraform HCL manifest parser using python-hcl2 with logging."""
+import logging
 import os
 import re
 from typing import Any
 import hcl2
+
+logger = logging.getLogger(__name__)
 
 
 def extract_references(data: Any) -> list[str]:
@@ -14,7 +17,6 @@ def extract_references(data: Any) -> list[str]:
         if isinstance(obj, str):
             for match in ref_pattern.finditer(obj):
                 res_type, res_name, _ = match.groups()
-                # Exclude common terraform keywords like var, local, module, data if desired or include
                 if res_type not in ("var", "local", "module", "data"):
                     refs.add(f"{res_type}.{res_name}")
         elif isinstance(obj, dict):
@@ -29,19 +31,13 @@ def extract_references(data: Any) -> list[str]:
 
 
 def parse_terraform_dir(dir_path: str) -> list[dict[str, Any]]:
-    """Parse Terraform files in directory and return normalized resource dicts.
-
-    Args:
-        dir_path: Path to directory containing .tf files.
-
-    Returns:
-        List of resource dicts, each containing:
-        resource_type, name, attributes, references.
-    """
+    """Parse Terraform files in directory and return normalized resource dicts."""
     resources = []
     if not os.path.exists(dir_path):
+        logger.warning(f"Terraform directory does not exist: {dir_path}")
         return resources
 
+    logger.info(f"Scanning for Terraform .tf files in: {dir_path}")
     for root, _, files in os.walk(dir_path):
         for file in files:
             if file.endswith(".tf"):
@@ -78,7 +74,8 @@ def parse_terraform_dir(dir_path: str) -> list[dict[str, Any]]:
                                         "source_file": file_path
                                     })
                 except Exception as e:
-                    # Log or skip unparseable files
+                    logger.error(f"Error parsing Terraform file {file_path}: {e}")
                     continue
 
+    logger.info(f"Successfully parsed {len(resources)} Terraform resources.")
     return resources
