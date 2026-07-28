@@ -1,80 +1,115 @@
 # BlastGraph: Infra-as-Code Blast Radius Analyzer
 
-BlastGraph parses your real Terraform HCL and Kubernetes YAML manifests into a resource dependency graph, cross-references CIS Benchmarks and cloud security docs via local RAG (Chroma DB), and flags security misconfigurations across your infrastructure graph.
-
-Unlike simple flat linters, BlastGraph models infrastructure dependencies as a directed graph, laying the groundwork for multi-hop attack path reasoning.
+BlastGraph is an Infrastructure-as-Code (IaC) security analyzer that parses Terraform HCL and Kubernetes YAML manifests, builds a resource dependency graph using NetworkX, cross-references CIS Benchmarks via local RAG (Chroma DB), performs multi-hop **chain reasoning** to discover attack paths, generates plain-English **attack narratives**, and ranks remediation fixes by the number of attack paths collapsed.
 
 ---
 
-## Architecture
+## Full System Architecture
 
 ```
-[Terraform/K8s files] --> [Parser] --> [Resource Graph (NetworkX)]
+[Terraform/K8s files] --> [Parsers] --> [Resource Graph (NetworkX)]
                                               |
-[CIS Benchmarks + cloud docs] --> [Chroma Vector DB] --> [RAG retrieval]
+[CIS Benchmarks] ---------> [Chroma DB] ----> [Misconfig Detectors]
                                               |
-                          [Misconfig Detector] --> flags individual issues
+                                     [Chain Reasoner] (DFS/BFS graph traversal)
+                                              |
+                                     [LLM Attack Narrator] (RAG grounded)
+                                              |
+                                     [Fix Prioritizer] (Counterfactual simulation)
+                                              |
+                                     [Structured Report JSON]
 ```
 
 ---
 
-## Features (Day 1 Scope)
+## Features
 
-- **Terraform HCL Parsing**: Parses `.tf` files into normalized resource representations using `python-hcl2` and extracts cross-resource interpolation references.
-- **Kubernetes YAML Parsing**: Parses Kubernetes manifests (Pods, Deployments, Services, Secrets) using `PyYAML` and tracks service account / volume / label references.
-- **Resource Dependency Graph**: Constructs a directed graph (`NetworkX DiGraph`) with resource nodes and reference relationship edges.
-- **Graph Export & Visualization**: Exports dependency graphs to standard JSON (`blast_graph.json`) and renders PNG diagrams (`blast_graph.png`).
-- **CIS Benchmark RAG Ingestion**: Automatically chunks, embeds, and indexes CIS security benchmark guidance in a local persistent Chroma DB (`chroma_db/`).
-- **Misconfiguration Detection Rules**:
-  - `RULE-S3-001`: Public S3 Bucket ACL (`public-read`, `public-read-write`)
-  - `RULE-SG-001`: Unrestricted Security Group Ingress (`0.0.0.0/0`)
+- **Terraform & Kubernetes Parsing**: Parses `.tf` HCL files using `python-hcl2` and `.yaml` Kubernetes manifests using `PyYAML`.
+- **Graph Construction & Export**: Builds a `NetworkX DiGraph` linking resources via reference edges, exporting visualizations to `blast_graph.json` and `blast_graph.png`.
+- **CIS Benchmark RAG**: Ingests and chunks CIS security benchmark guidance into local persistent Chroma DB (`chroma_db/`).
+- **Misconfiguration Detection**:
+  - `RULE-S3-001` / `RULE-S3-002`: Public S3 bucket ACLs & disabled public access blocks
+  - `RULE-SG-001`: Unrestricted Security Group ingress (`0.0.0.0/0`)
   - `RULE-K8S-001`: Kubernetes Pod running as root user (`runAsNonRoot: false`)
   - `RULE-IAM-001`: Overly permissive wildcard IAM policies (`*`)
+- **Chain Reasoning**: Discovers multi-hop attack paths linking multiple violated infrastructure resources.
+- **Attack Path Scoring & Deduplication**: Scores paths by hop distance and severity weights, filtering subpaths.
+- **LLM Attack Narratives**: Generates plain-English attack narratives grounded in retrieved CIS guidance.
+- **Counterfactual Fix Prioritization**: Simulates remediation of each individual violation and ranks fixes by the total count of attack paths collapsed.
 
 ---
 
 ## Installation & Setup
 
-1. **Clone the repository**:
+1. **Clone repository**:
    ```bash
    git clone https://github.com/H8rsh100/BlastGraph.git
    cd BlastGraph
    ```
 
-2. **Install dependencies**:
+2. **Install requirements**:
    ```bash
    python -m pip install -r requirements.txt
    ```
 
-3. **Environment setup**:
-   Copy `.env.example` to `.env`:
+3. **Configure environment**:
    ```bash
    cp .env.example .env
    ```
 
 ---
 
-## Usage
+## Usage Examples
 
-Run BlastGraph against any folder containing Terraform or Kubernetes manifests:
+Run the full end-to-end BlastGraph analysis pipeline against any IaC folder:
 
 ```bash
-python main.py /path/to/iac/directory
+python main.py --repo tests/fixtures/sample_iac
 ```
 
-### Running Unit Tests
+### Running Unit & Integration Tests
 ```bash
 python -m pytest tests/
 ```
 
 ---
 
-## Coming in Day 2
+## Sample JSON Report Output
 
-- **Attack-Path Chain Reasoning**: Graph traversal algorithms to link individual misconfigurations into multi-hop attack vectors.
-- **LLM Attack Path Narratives**: Auto-generated attack narratives explaining how an adversary could exploit chained misconfigurations.
-- **Fix Prioritization**: Graph centrality ranking to prioritize fixes that collapse the maximum number of attack paths.
-- **REST API & Web UI**: FastAPI service and interactive dashboard.
+```json
+{
+  "summary": {
+    "resource_count": 5,
+    "node_count": 5,
+    "edge_count": 3,
+    "violation_count": 4,
+    "attack_path_count": 1
+  },
+  "violations": [...],
+  "attack_paths": [
+    [
+      ["aws_security_group.web_sg", "aws_security_group", "Unrestricted Security Group Ingress 0.0.0.0/0"],
+      ["aws_s3_bucket.public_bucket", "aws_s3_bucket", "Public S3 Bucket ACL"]
+    ]
+  ],
+  "narratives": [
+    {
+      "path_index": 1,
+      "score": 34.0,
+      "narrative": "An attacker initially gains access through resource 'aws_security_group.web_sg' due to Unrestricted Ingress 0.0.0.0/0. From there, the adversary pivots to 'aws_s3_bucket.public_bucket' exploiting Public S3 Bucket ACL."
+    }
+  ],
+  "prioritized_fixes": [
+    {
+      "node_id": "aws_security_group.web_sg",
+      "rule_id": "RULE-SG-001",
+      "title": "Unrestricted Security Group Ingress 0.0.0.0/0",
+      "paths_eliminated": 1,
+      "remaining_paths": 0
+    }
+  ]
+}
+```
 
 ---
 
