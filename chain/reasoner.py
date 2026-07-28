@@ -1,6 +1,39 @@
-"""Attack path chain reasoner module with path tuple representation."""
+"""Attack path chain reasoner module with path scoring logic."""
 from typing import Any
 import networkx as nx
+
+
+def score_path(path: list[tuple[str, str, str]]) -> float:
+    """Calculate severity score for an attack path based on hop length and violation severity.
+
+    Shorter paths with higher severity violations yield higher risk scores.
+
+    Args:
+        path: List of (node_id, resource_type, violation_title) tuples.
+
+    Returns:
+        Float score representing risk magnitude.
+    """
+    if not path:
+        return 0.0
+
+    severity_score = 0.0
+    for _, _, v_title in path:
+        v_title_lower = v_title.lower()
+        if "critical" in v_title_lower or "0.0.0.0/0" in v_title_lower:
+            severity_score += 10.0
+        elif "public" in v_title_lower or "root" in v_title_lower or "wildcard" in v_title_lower or "high" in v_title_lower:
+            severity_score += 7.0
+        elif v_title != "Intermediate Link":
+            severity_score += 4.0
+        else:
+            severity_score += 1.0
+
+    # Shorter paths are more direct and higher risk (hop multiplier)
+    hops = max(1, len(path) - 1)
+    hop_multiplier = 1.0 + (1.0 / hops)
+
+    return round(severity_score * hop_multiplier, 2)
 
 
 def find_attack_paths(graph: nx.DiGraph, violations: list[dict[str, Any]], max_hops: int = 4) -> list[list[tuple[str, str, str]]]:
@@ -38,7 +71,6 @@ def find_attack_paths(graph: nx.DiGraph, violations: list[dict[str, Any]], max_h
                     for raw_path in paths:
                         v_nodes_in_path = [n for n in raw_path if n in violated_nodes]
                         if len(v_nodes_in_path) >= 2:
-                            # Format path as tuples (node_id, resource_type, violation_title)
                             path_tuples = []
                             for nid in raw_path:
                                 node_attrs = graph.nodes[nid] if nid in graph.nodes else {}
