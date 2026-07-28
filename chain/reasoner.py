@@ -1,19 +1,13 @@
-"""Attack path chain reasoner module with path deduplication and ranking."""
+"""Attack path chain reasoner module with logging."""
+import logging
 from typing import Any
 import networkx as nx
 
+logger = logging.getLogger(__name__)
+
 
 def score_path(path: list[tuple[str, str, str]]) -> float:
-    """Calculate severity score for an attack path based on hop length and violation severity.
-
-    Shorter paths with higher severity violations yield higher risk scores.
-
-    Args:
-        path: List of (node_id, resource_type, violation_title) tuples.
-
-    Returns:
-        Float score representing risk magnitude.
-    """
+    """Calculate severity score for an attack path based on hop length and violation severity."""
     if not path:
         return 0.0
 
@@ -36,31 +30,21 @@ def score_path(path: list[tuple[str, str, str]]) -> float:
 
 
 def dedupe_and_rank_paths(paths: list[list[tuple[str, str, str]]], top_n: int = 10) -> list[list[tuple[str, str, str]]]:
-    """Deduplicate overlapping paths and return top_n highest scoring attack paths.
-
-    Args:
-        paths: List of formatted path tuple lists.
-        top_n: Max number of top paths to return.
-
-    Returns:
-        Filtered and sorted list of top attack paths.
-    """
+    """Deduplicate overlapping paths and return top_n highest scoring attack paths."""
     if not paths:
         return []
 
-    # Sort paths by score descending
     scored_paths = [(p, score_path(p)) for p in paths]
     scored_paths.sort(key=lambda x: x[1], reverse=True)
 
     unique_paths = []
     seen_node_sequences = set()
 
-    for path, _ in scored_paths:
+    for path, score in scored_paths:
         node_seq = tuple(t[0] for t in path)
         if node_seq in seen_node_sequences:
             continue
 
-        # Check if this node_seq is a strict sub-sequence of an already accepted path
         is_subpath = False
         for accepted in unique_paths:
             acc_seq = [t[0] for t in accepted]
@@ -75,6 +59,7 @@ def dedupe_and_rank_paths(paths: list[list[tuple[str, str, str]]], top_n: int = 
         if not is_subpath:
             seen_node_sequences.add(node_seq)
             unique_paths.append(path)
+            logger.info(f"Accepted attack path (score={score}): {[t[0] for t in path]}")
 
         if len(unique_paths) >= top_n:
             break
@@ -88,17 +73,8 @@ def find_attack_paths(
     max_hops: int = 4,
     top_n: int = 10
 ) -> list[list[tuple[str, str, str]]]:
-    """Find attack paths passing through multiple violated nodes within max_hops.
-
-    Args:
-        graph: NetworkX resource DiGraph.
-        violations: List of violation dicts from detectors.
-        max_hops: Maximum path hop length.
-        top_n: Number of top ranked attack paths to return.
-
-    Returns:
-        List of top attack paths, where each path is an ordered list of (node_id, resource_type, violation_title) tuples.
-    """
+    """Find attack paths passing through multiple violated nodes within max_hops."""
+    logger.info(f"Starting attack path discovery across graph (max_hops={max_hops})")
     node_violations: dict[str, list[dict[str, Any]]] = {}
     for v in violations:
         nid = v.get("node_id")
@@ -109,6 +85,7 @@ def find_attack_paths(
 
     violated_nodes = set(node_violations.keys())
     if len(violated_nodes) < 2:
+        logger.info(f"Insufficient violated nodes ({len(violated_nodes)}) to construct multi-hop attack chains.")
         return []
 
     formatted_paths = []
@@ -139,4 +116,5 @@ def find_attack_paths(
                 except Exception:
                     continue
 
+    logger.info(f"Discovered {len(formatted_paths)} raw candidate attack paths before deduplication.")
     return dedupe_and_rank_paths(formatted_paths, top_n=top_n)

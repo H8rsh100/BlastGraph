@@ -1,4 +1,4 @@
-"""Narrative generator module combining CIS RAG context with LLM generation."""
+"""Narrative generator module with logging."""
 import logging
 from typing import Optional
 
@@ -28,19 +28,11 @@ def generate_fallback_narrative(path: list[tuple[str, str, str]], cis_guidance: 
 
 
 def generate_narrative(path: list[tuple[str, str, str]], chroma_dir: str = "./chroma_db") -> str:
-    """Generate a plain-English attack narrative for a given attack path.
-
-    Args:
-        path: List of (node_id, resource_type, violation_title) tuples.
-        chroma_dir: Directory path for Chroma DB.
-
-    Returns:
-        Generated narrative string.
-    """
+    """Generate a plain-English attack narrative for a given attack path."""
     if not path:
         return "No attack path specified."
 
-    # Retrieve CIS guidance per step
+    logger.info(f"Generating attack narrative for path with {len(path)} steps.")
     cis_guidance_list = []
     for node_id, res_type, v_title in path:
         snippets = retrieve_cis_guidance_for_resource(res_type, v_title, chroma_dir=chroma_dir, top_k=1)
@@ -52,6 +44,7 @@ def generate_narrative(path: list[tuple[str, str, str]], chroma_dir: str = "./ch
     api_key = Config.ANTHROPIC_API_KEY
     if api_key:
         try:
+            logger.info("Executing Anthropic LLM API call for narrative generation.")
             from langchain_anthropic import ChatAnthropic
             llm = ChatAnthropic(model_name="claude-3-5-sonnet-20241022", anthropic_api_key=api_key)
             messages = [
@@ -63,4 +56,5 @@ def generate_narrative(path: list[tuple[str, str, str]], chroma_dir: str = "./ch
         except Exception as e:
             logger.warning(f"LLM API call failed ({e}), falling back to deterministic narrative generator.")
 
+    logger.info("Using deterministic grounded narrative generator.")
     return generate_fallback_narrative(path, cis_guidance_list)
