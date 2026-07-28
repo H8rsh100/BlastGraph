@@ -1,4 +1,4 @@
-"""Main entry point for BlastGraph analyzer with full pipeline integration."""
+"""Main CLI entry point for BlastGraph end-to-end analyzer."""
 import argparse
 import json
 import logging
@@ -16,6 +16,7 @@ from docs_ingest.ingest import ingest_cis_docs, retrieve_cis_guidance_for_resour
 from chain.reasoner import find_attack_paths, score_path
 from narrator.generate_narrative import generate_narrative
 from prioritizer.fix_ranker import rank_fixes
+from report import build_report, save_report
 
 logging.basicConfig(
     level=getattr(logging, Config.LOG_LEVEL.upper(), logging.INFO),
@@ -114,14 +115,22 @@ def analyze_directory(target_dir: str, chroma_dir: str = "./chroma_db", export_v
 
 
 def main():
-    """CLI entry point for BlastGraph."""
+    """CLI entry point for BlastGraph supporting --repo and --output flags."""
     parser = argparse.ArgumentParser(description="BlastGraph - Infra-as-Code Blast Radius Analyzer")
-    parser.add_argument("dir", nargs="?", default=".", help="Directory containing IaC manifests")
+    parser.add_argument("dir", nargs="?", default=None, help="Directory containing IaC manifests")
+    parser.add_argument("--repo", default=None, help="Target repository directory path")
     parser.add_argument("--chroma-dir", default=Config.CHROMA_DB_DIR, help="Path to Chroma DB directory")
+    parser.add_argument("--output", default="blast_graph_report.json", help="Path to save report JSON")
     args = parser.parse_args()
 
-    results = analyze_directory(args.dir, chroma_dir=args.chroma_dir)
-    print(json.dumps(results, indent=2))
+    target_dir = args.repo or args.dir or "."
+
+    results = analyze_directory(target_dir, chroma_dir=args.chroma_dir)
+    report = build_report(results)
+    report_path = save_report(report, output_path=args.output)
+    
+    logger.info(f"Report successfully saved to {report_path}")
+    print(json.dumps(report, indent=2))
 
 
 if __name__ == "__main__":
