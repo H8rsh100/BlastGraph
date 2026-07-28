@@ -1,4 +1,4 @@
-"""Main entry point for BlastGraph analyzer with chain reasoning and narrative generation."""
+"""Main entry point for BlastGraph analyzer with full pipeline integration."""
 import argparse
 import json
 import logging
@@ -15,6 +15,7 @@ from detectors.rules import ALL_RULES
 from docs_ingest.ingest import ingest_cis_docs, retrieve_cis_guidance_for_resource
 from chain.reasoner import find_attack_paths, score_path
 from narrator.generate_narrative import generate_narrative
+from prioritizer.fix_ranker import rank_fixes
 
 logging.basicConfig(
     level=getattr(logging, Config.LOG_LEVEL.upper(), logging.INFO),
@@ -61,7 +62,7 @@ def run_detectors(graph: nx.DiGraph, chroma_dir: str = "./chroma_db") -> list[di
     return violations
 
 
-def analyze_directory(target_dir: str, chroma_dir: str = "./chroma_dir", export_viz: bool = True) -> dict[str, Any]:
+def analyze_directory(target_dir: str, chroma_dir: str = "./chroma_db", export_viz: bool = True) -> dict[str, Any]:
     """Run end-to-end BlastGraph analysis on a target directory."""
     logger.info(f"Starting BlastGraph analysis for target directory: {target_dir}")
     tf_resources = parse_terraform_dir(target_dir)
@@ -95,13 +96,20 @@ def analyze_directory(target_dir: str, chroma_dir: str = "./chroma_dir", export_
             "narrative": narrative_text
         })
 
+    logger.info("Calculating counterfactual fix impact rankings...")
+    prioritized_fixes = rank_fixes(graph, violations, max_hops=4)
+    if prioritized_fixes:
+        top_fix = prioritized_fixes[0]
+        logger.info(f"Top-ranked fix: {top_fix.get('title')} on {top_fix.get('node_id')} (collapses {top_fix.get('paths_eliminated')} paths)")
+
     return {
         "resource_count": len(all_resources),
         "node_count": len(graph.nodes),
         "edge_count": len(graph.edges),
         "violations": violations,
         "attack_paths": attack_paths,
-        "narratives": narratives
+        "narratives": narratives,
+        "prioritized_fixes": prioritized_fixes
     }
 
 
