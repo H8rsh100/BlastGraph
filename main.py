@@ -1,4 +1,4 @@
-"""Main entry point for BlastGraph analyzer with logging setup."""
+"""Main entry point for BlastGraph analyzer with chain reasoning and narrative generation."""
 import argparse
 import json
 import logging
@@ -13,8 +13,9 @@ from parsers.k8s_parser import parse_k8s_dir
 from graph.builder import build_resource_graph, export_graph_json, export_graph_png
 from detectors.rules import ALL_RULES
 from docs_ingest.ingest import ingest_cis_docs, retrieve_cis_guidance_for_resource
+from chain.reasoner import find_attack_paths, score_path
+from narrator.generate_narrative import generate_narrative
 
-# Configure logging
 logging.basicConfig(
     level=getattr(logging, Config.LOG_LEVEL.upper(), logging.INFO),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
@@ -60,7 +61,7 @@ def run_detectors(graph: nx.DiGraph, chroma_dir: str = "./chroma_db") -> list[di
     return violations
 
 
-def analyze_directory(target_dir: str, chroma_dir: str = "./chroma_db", export_viz: bool = True) -> dict[str, Any]:
+def analyze_directory(target_dir: str, chroma_dir: str = "./chroma_dir", export_viz: bool = True) -> dict[str, Any]:
     """Run end-to-end BlastGraph analysis on a target directory."""
     logger.info(f"Starting BlastGraph analysis for target directory: {target_dir}")
     tf_resources = parse_terraform_dir(target_dir)
@@ -80,11 +81,27 @@ def analyze_directory(target_dir: str, chroma_dir: str = "./chroma_db", export_v
 
     violations = run_detectors(graph, chroma_dir=chroma_dir)
 
+    logger.info("Executing chain reasoning to discover attack paths.")
+    attack_paths = find_attack_paths(graph, violations, max_hops=4, top_n=10)
+    logger.info(f"Discovered {len(attack_paths)} top attack paths across the resource graph.")
+
+    narratives = []
+    for idx, path in enumerate(attack_paths, 1):
+        narrative_text = generate_narrative(path, chroma_dir=chroma_dir)
+        narratives.append({
+            "path_index": idx,
+            "score": score_path(path),
+            "path": path,
+            "narrative": narrative_text
+        })
+
     return {
         "resource_count": len(all_resources),
         "node_count": len(graph.nodes),
         "edge_count": len(graph.edges),
-        "violations": violations
+        "violations": violations,
+        "attack_paths": attack_paths,
+        "narratives": narratives
     }
 
 
